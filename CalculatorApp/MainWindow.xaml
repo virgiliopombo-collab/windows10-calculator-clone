@@ -1,0 +1,337 @@
+using System.Globalization;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+
+namespace CalculatorApp;
+
+public partial class MainWindow : Window
+{
+    private const string DefaultDisplay = "0";
+    private string _displayText = DefaultDisplay;
+    private double _storedValue;
+    private string? _pendingOperator;
+    private bool _isWaitingForOperand = false;
+    private bool _isErrorState = false;
+
+    public MainWindow()
+    {
+        InitializeComponent();
+        UpdateDisplay(DefaultDisplay);
+        this.KeyDown += MainWindow_KeyDown;
+    }
+
+    private void MainWindow_KeyDown(object sender, KeyEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case Key.D0:
+            case Key.NumPad0:
+                AppendDigit("0");
+                break;
+            case Key.D1:
+            case Key.NumPad1:
+                AppendDigit("1");
+                break;
+            case Key.D2:
+            case Key.NumPad2:
+                AppendDigit("2");
+                break;
+            case Key.D3:
+            case Key.NumPad3:
+                AppendDigit("3");
+                break;
+            case Key.D4:
+            case Key.NumPad4:
+                AppendDigit("4");
+                break;
+            case Key.D5:
+            case Key.NumPad5:
+                AppendDigit("5");
+                break;
+            case Key.D6:
+            case Key.NumPad6:
+                AppendDigit("6");
+                break;
+            case Key.D7:
+            case Key.NumPad7:
+                AppendDigit("7");
+                break;
+            case Key.D8:
+            case Key.NumPad8:
+                AppendDigit("8");
+                break;
+            case Key.D9:
+            case Key.NumPad9:
+                AppendDigit("9");
+                break;
+            case Key.OemPeriod:
+            case Key.Decimal:
+                AppendDigit(".");
+                break;
+            case Key.Add:
+            case Key.OemPlus:
+                HandleOperator("+");
+                break;
+            case Key.Subtract:
+            case Key.OemMinus:
+                HandleOperator("-");
+                break;
+            case Key.Multiply:
+                HandleOperator("*");
+                break;
+            case Key.Divide:
+                HandleOperator("/");
+                break;
+            case Key.Enter:
+                HandleEquals();
+                break;
+            case Key.Back:
+                HandleBackspace();
+                break;
+            case Key.Escape:
+                HandleClear();
+                break;
+        }
+    }
+
+    private void Button_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button)
+            return;
+
+        var content = button.Content?.ToString();
+        if (string.IsNullOrWhiteSpace(content))
+            return;
+
+        if (double.TryParse(content, out _))
+        {
+            AppendDigit(content);
+            return;
+        }
+
+        switch (content)
+        {
+            case ".":
+                AppendDigit(".");
+                break;
+            case "/":
+            case "x":
+            case "*":
+                HandleOperator("*");
+                break;
+            case "+":
+            case "-":
+                HandleOperator(content);
+                break;
+            case "÷":
+                HandleOperator("/");
+                break;
+            case "=":
+                HandleEquals();
+                break;
+            case "C":
+                HandleClear();
+                break;
+            case "CE":
+                HandleClearEntry();
+                break;
+            case "⌫":
+                HandleBackspace();
+                break;
+            case "%":
+                HandlePercent();
+                break;
+            case "+/-":
+                ToggleSign();
+                break;
+        }
+    }
+
+    private void AppendDigit(string digit)
+    {
+        if (_isErrorState)
+        {
+            HandleClear();
+        }
+
+        if (_isWaitingForOperand)
+        {
+            _displayText = DefaultDisplay;
+            _isWaitingForOperand = false;
+        }
+
+        if (digit == ".")
+        {
+            if (_displayText.Contains('.'))
+            {
+                return;
+            }
+
+            if (string.IsNullOrEmpty(_displayText) || _displayText == "-")
+            {
+                _displayText = "0.";
+                UpdateDisplay(_displayText);
+                return;
+            }
+        }
+
+        if (_displayText == "0" && digit != ".")
+        {
+            _displayText = digit;
+        }
+        else
+        {
+            _displayText += digit;
+        }
+
+        if (_displayText == "-0")
+        {
+            _displayText = "0";
+        }
+
+        UpdateDisplay(_displayText);
+    }
+
+    private void HandleOperator(string newOperator)
+    {
+        if (_isErrorState)
+        {
+            return;
+        }
+
+        if (_pendingOperator is not null && !_isWaitingForOperand)
+        {
+            HandleEquals();
+        }
+
+        _storedValue = ParseDisplay();
+        _pendingOperator = newOperator;
+        _isWaitingForOperand = true;
+    }
+
+    private void HandleEquals()
+    {
+        if (_isErrorState)
+        {
+            return;
+        }
+
+        if (_pendingOperator is null)
+        {
+            return;
+        }
+
+        var currentValue = ParseDisplay();
+        var result = CalculatorEngine.Calculate(_storedValue, currentValue, _pendingOperator);
+
+        if (double.IsInfinity(result) || double.IsNaN(result))
+        {
+            _displayText = "Cannot divide by zero";
+            _isErrorState = true;
+            _pendingOperator = null;
+            _storedValue = 0;
+            UpdateDisplay(_displayText);
+            return;
+        }
+
+        _displayText = FormatResult(result);
+        _storedValue = result;
+        _pendingOperator = null;
+        _isWaitingForOperand = true;
+        UpdateDisplay(_displayText);
+    }
+
+    private void HandleClear()
+    {
+        _displayText = DefaultDisplay;
+        _storedValue = 0;
+        _pendingOperator = null;
+        _isWaitingForOperand = false;
+        _isErrorState = false;
+        UpdateDisplay(_displayText);
+    }
+
+    private void HandleClearEntry()
+    {
+        _displayText = DefaultDisplay;
+        _isWaitingForOperand = false;
+        UpdateDisplay(_displayText);
+    }
+
+    private void HandleBackspace()
+    {
+        if (_isErrorState)
+        {
+            HandleClear();
+            return;
+        }
+
+        if (_displayText.Length <= 1)
+        {
+            _displayText = DefaultDisplay;
+            UpdateDisplay(_displayText);
+            return;
+        }
+
+        _displayText = _displayText.Substring(0, _displayText.Length - 1);
+        UpdateDisplay(_displayText);
+    }
+
+    private void HandlePercent()
+    {
+        if (_isErrorState)
+        {
+            return;
+        }
+
+        var value = ParseDisplay();
+        _displayText = FormatResult(value / 100);
+        UpdateDisplay(_displayText);
+    }
+
+    private void ToggleSign()
+    {
+        if (_isErrorState)
+        {
+            return;
+        }
+
+        var value = ParseDisplay();
+        var toggled = -value;
+        _displayText = FormatResult(toggled);
+        UpdateDisplay(_displayText);
+    }
+
+    private double ParseDisplay()
+    {
+        if (double.TryParse(_displayText, NumberStyles.Any, CultureInfo.InvariantCulture, out var value))
+        {
+            return value;
+        }
+
+        return 0;
+    }
+
+    private static string FormatResult(double value)
+    {
+        if (double.IsInfinity(value) || double.IsNaN(value))
+        {
+            return "Cannot divide by zero";
+        }
+
+        if (Math.Abs(value) >= 1e15)
+        {
+            return value.ToString("G15", CultureInfo.InvariantCulture);
+        }
+
+        var roundedValue = Math.Round(value, 10);
+        return roundedValue.ToString("0.#############################", CultureInfo.InvariantCulture);
+    }
+
+    private void UpdateDisplay(string text)
+    {
+        DisplayText.Text = text;
+    }
+}
